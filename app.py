@@ -14,7 +14,7 @@ st.caption("იაფიანი მონეტების 10%+ პამპ�
 
 # --- SIDEBAR (პარამეტრები) ---
 st.sidebar.header("⚙️ რადარის პარამეტრები")
-openai_key = st.sidebar.text_input("OpenAI API Key:", type="password")
+openai_key = st.sidebar.text_input("Gemini API Key:", type="password")
 onesignal_app_id = st.sidebar.text_input("OneSignal App ID:", value="YOUR_ONESIGNAL_APP_ID")
 onesignal_api_key = st.sidebar.text_input("OneSignal API Key:", type="password")
 
