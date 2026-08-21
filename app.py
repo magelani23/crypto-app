@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 import json
+import google.generativeai as genai
 
 # 1. გვერდის კონფიგურაცია
 st.set_page_config(
@@ -14,7 +15,7 @@ st.caption("იაფიანი მონეტების 10%+ პამპ�
 
 # --- SIDEBAR (პარამეტრები) ---
 st.sidebar.header("⚙️ რადარის პარამეტრები")
-openai_key = st.sidebar.text_input("Gemini API Key:", type="password")
+gemini_key = st.sidebar.text_input("Gemini API Key:", type="password")
 onesignal_app_id = st.sidebar.text_input("OneSignal App ID:", value="YOUR_ONESIGNAL_APP_ID")
 onesignal_api_key = st.sidebar.text_input("OneSignal API Key:", type="password")
 
@@ -48,6 +49,19 @@ def send_push_alert(title, body):
     except Exception as e:
         st.error(f"Push შეცდომა: {e}")
 
+# --- GEMINI AI FUNCTION ---
+def get_ai_crypto_insight(coin_name, price, change):
+    if not gemini_key:
+        return "💡 **AI ანალიტიკოსი:** გთხოვთ მიუთითოთ Gemini API Key გვერდითა პანელში."
+    try:
+        genai.configure(api_key=gemini_key)
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        prompt = f"მოკლედ, ქართულად შეაფასე კრიპტოვალუტა {coin_name}, რომლის ფასია ${price} და 24სთ ზრდაა {change}%. მიეცი მოკლე რჩევა ტრეიდერს."
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        return f"AI ანალიზის შეცდომა: {e}"
+
 # --- SMART MONEY DATABASE (ინსაიდერები) ---
 SMART_MONEY_DATABASE = {
     "0x8eb...3f1": {
@@ -77,10 +91,10 @@ tab1, tab2, tab3, tab4 = st.tabs([
 # === TAB 1: AI DAILY RECOMMENDATIONS ===
 with tab1:
     st.subheader("⭐ AI-ს დღიური ტოპ-ყიდვის სიგნალები (Daily Buy Picks)")
-    st.write("ალგორითმი აანალიზებს მოცულობას, ზრდის ტემპს და ჭკვიან ფულს, რათა შეარჩიოს დღის საუკეთესო მონეტები.")
+    st.write("ალგორითმი აანალიზებს მოცულობას, ზრდის ტემპს და ბაზრის მონაცემებს.")
     
     if st.button("🔮 დღის რეკომენდაციების გენერაცია"):
-        with st.spinner("AI აანალიზებს ბაზრის ტოპ მონეტებს..."):
+        with st.spinner("AI და ბაზარი ამუშავებს მონაცემებს..."):
             try:
                 url = "https://api.coingecko.com/api/v3/coins/markets"
                 params = {'vs_currency': 'usd', 'order': 'volume_desc', 'per_page': 100, 'page': 1}
@@ -101,19 +115,23 @@ with tab1:
                     for idx, coin in enumerate(top_picks, 1):
                         p = coin.get('current_price') or 0
                         vol = coin.get('total_volume') or 0
+                        ch = coin.get('price_change_percentage_24h') or 0
                         tp = p * 1.30
                         sl = p * 0.94
                         
-                        st.success(f"🎯 **რეკომენდაცია #{idx}: {coin['name']} ({coin['symbol'].upper()})** | AI Score: **{95 - idx*3}/100**")
+                        st.success(f"🎯 **რეკომენდაცია #{idx}: {coin['name']} ({coin['symbol'].upper()})**")
                         c1, c2, c3, c4 = st.columns(4)
                         c1.metric("🟢 ყიდვის ზონა", f"${p}")
                         c2.metric("🎯 სამიზნე (TP)", f"${tp:.5f}", delta="+30%")
                         c3.metric("🛑 Stop-Loss", f"${sl:.5f}", delta="-6%")
                         c4.metric("📊 24სთ მოცულობა", f"${vol:,.0f}")
-                        st.caption("💡 **AI ანალიტიკოსი:** მონეტაზე ფიქსირდება ჯანსაღი Volume Surge. მაღალი ალბათობაა შემდგომი ზრდის.")
+                        
+                        # Gemini AI ჩართვა თითოეულ მონეტაზე
+                        ai_comment = get_ai_crypto_insight(coin['name'], p, ch)
+                        st.info(f"💡 **AI ანალიტიკოსი:** {ai_comment}")
                         st.divider()
                 else:
-                    st.info("დღეს მკაცრი ფილტრების გამო შესაფერისი მონეტა ვერ მოიძებნა. სცადეთ პარამეტრების შეცვლა (მაგ: დაწიეთ მინიმალური მოცულობა გვერდითა პანელში).")
+                    st.info("დღეს მითითებული ფილტრებით შესაფერისი მონეტა ვერ მოიძებნა. სცადეთ პარამეტრების შეცვლა.")
             except Exception as e:
                 st.error(f"API შეცდომა: {e}")
 
@@ -188,3 +206,4 @@ with tab4:
     
     if st.button("📲 გაგზავნე ტელეფონზე ტესტ-სიგნალი"):
         send_push_alert(test_title, test_body)
+                    
