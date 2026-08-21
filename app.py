@@ -29,7 +29,7 @@ if st.button("🔮 დღის რეკომენდაციების �
     else:
         try:
             genai.configure(api_key=gemini_key)
-            model = genai.GenerativeModel('gemini-1.5-pro')
+            model = genai.GenerativeModel('gemini-2.5-flash')
             
             prompt = "Act as an expert crypto analyst. Give 3 potential low-cap cryptocurrency buy picks with high growth potential today, explaining the reasons briefly in Georgian language."
             
