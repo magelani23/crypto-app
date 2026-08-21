@@ -84,7 +84,7 @@ def get_ai_crypto_insight_cached(api_key, coin_name, price, change, rsi_val):
         time.sleep(1)
         return response.text
     except Exception as e:
-        return f"AI ანალიზის ლიმიტი ან შეცდომა (გთხოვთ დაელოდოთ 1 წუთი): {e}"
+        return f"AI ანალიზის ლიმიტი ან შეცდომა: {e}"
 
 @st.cache_data(ttl=600)
 def get_global_market_analysis_cached(api_key):
@@ -165,19 +165,27 @@ def fetch_fear_and_greed():
     except Exception:
         return "N/A", "Unknown"
 
-# --- WHALE ALERT FUNCTIONS ---
+# --- WHALE ALERT FUNCTIONS (UPDATED FOR BETTER ERROR HANDLING) ---
 def fetch_whale_transactions(api_key):
-    url = f"https://api.whale-alert.io/v1/transactions?api_key={api_key}&min_value=1000000&limit=5"
+    # დროის პარამეტრი (ბოლო 1 საათის ტრანზაქციები)
+    current_time = int(time.time())
+    start_time = current_time - 3600
+    url = f"https://api.whale-alert.io/v1/transactions?api_key={api_key}&start_time={start_time}&min_value=500000&limit=5"
+    
     try:
         response = requests.get(url, timeout=10)
-        return response.json().get('transactions', [])
-    except Exception:
-        return []
+        res_json = response.json()
+        if response.status_code == 200:
+            return res_json.get('transactions', []), None
+        else:
+            return [], res_json.get('message', 'უცნობი შეცდომა API-დან')
+    except Exception as e:
+        return [], str(e)
 
 def start_whale_watcher(api_key, tg_token, tg_chat_id):
     last_tx_hash = ""
     while True:
-        transactions = fetch_whale_transactions(api_key)
+        transactions, err = fetch_whale_transactions(api_key)
         if transactions:
             tx = transactions[0]
             if tx['hash'] != last_tx_hash:
@@ -264,7 +272,7 @@ with tab2:
             found_pumps = [c for c in response if (c.get('current_price') or 0) <= max_price and (c.get('price_change_percentage_24h') or 0) >= min_growth and (c.get('total_volume') or 0) >= min_volume]
             
             if found_pumps:
-                for item in found_pumps[:3]: # ლიმიტი 3, რომ 429 შეცდომა აიცილოთ თავიდან
+                for item in found_pumps[:3]:
                     p = item.get('current_price') or 0
                     ch = item.get('price_change_percentage_24h') or 0
                     v = item.get('total_volume') or 0
@@ -422,7 +430,7 @@ with tab6:
             st.warning("⚠️ გთხოვთ მიუთითოთ Whale Alert API Key გვერდითა პანელში.")
         else:
             with st.spinner("ვეშაპების მონაცემების მოძიება..."):
-                txs = fetch_whale_transactions(whale_api)
+                txs, error_msg = fetch_whale_transactions(whale_api)
                 if txs:
                     table_data = []
                     for tx in txs:
@@ -433,8 +441,10 @@ with tab6:
                             "To": tx['to']['owner']
                         })
                     st.table(table_data)
+                elif error_msg:
+                    st.error(f"⚠️ Whale Alert შეცდომა: {error_msg}")
                 else:
-                    st.warning("ვეშაპების ტრანზაქცია ამ მომენტში ვერ მოიძებნა.")
+                    st.warning("ვეშაპების ტრანზაქცია მითითებულ პარამეტრებში ვერ მოიძებნა.")
 
     st.divider()
     st.write("💬 **დაუსვი კითხვა Gemini-ს ვეშაპების აქტივობაზე და მათ გავლენაზე ბაზარზე:**")
