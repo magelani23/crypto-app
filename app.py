@@ -1,19 +1,19 @@
 import streamlit as st
 import requests
-import json
 import sqlite3
+import time
 import google.generativeai as genai
 import plotly.express as px
 
 # 1. გვერდის კონფიგურაცია
 st.set_page_config(
-    page_title="Crypto AI Ultimate Pro + Tech Indicators",
+    page_title="Crypto AI Ultimate Pro + Corporate Chat",
     page_icon="🧠",
     layout="wide"
 )
 
-st.title("🧠 Crypto AI: Ultimate Pro Radar, Portfolio, Tech Indicators & Bot")
-st.caption("Binance & CoinGecko ჰიბრიდი + RSI/MA ტექნიკური ანალიზი, SQLite პორტფელი და Telegram ალერტები")
+st.title("🧠 Crypto AI: Ultimate Pro + Interactive AI Chats")
+st.caption("Binance & CoinGecko ჰიბრიდი + კორპორაციული ყიდვები ინტერაქტიული ჩატით, RSI და პორტფელი")
 
 # --- DATABASE SETUP (SQLite for Portfolio) ---
 def init_db():
@@ -68,38 +68,43 @@ def send_telegram_alert(message):
     url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
     payload = {"chat_id": telegram_chat_id, "text": message, "parse_mode": "Markdown"}
     try:
-        res = requests.post(url, json=payload)
+        res = requests.post(url, json=payload, timeout=5)
         if res.status_code == 200:
             st.toast("✅ Telegram შეტყობინება გაიგზავნა!", icon="✈️")
     except Exception as e:
         st.error(f"Telegram შეცდომა: {e}")
 
-# --- GEMINI AI FUNCTIONS ---
-def get_ai_crypto_insight(coin_name, price, change, rsi_val):
-    if not gemini_key:
+# --- GEMINI AI FUNCTIONS (WITH CACHING TO PREVENT 429 ERROR) ---
+@st.cache_data(ttl=600)
+def get_ai_crypto_insight_cached(api_key, coin_name, price, change, rsi_val):
+    if not api_key:
         return "💡 **AI ანალიტიკოსი:** გთხოვთ მიუთითოთ Gemini API Key გვერდითა პანელში."
     try:
-        genai.configure(api_key=gemini_key)
+        genai.configure(api_key=api_key)
         model = genai.GenerativeModel("gemini-3.6-flash")
         prompt = f"მოკლედ, ქართულად შეაფასე კრიპტოვალუტა {coin_name}, რომლის ფასია ${price}, 24სთ ზრდაა {change}% და ტექნიკური RSI ინდიკატორია {rsi_val}. მიეცი მოკლე რჩევა ტრეიდერს."
         response = model.generate_content(prompt)
+        time.sleep(1)
         return response.text
     except Exception as e:
-        return f"AI ანალიზის შეცდომა: {e}"
+        return f"AI ანალიზის ლიმიტი ან შეცდომა (გთხოვთ დაელოდოთ 1 წუთი): {e}"
 
-def get_global_market_analysis():
-    if not gemini_key:
+@st.cache_data(ttl=600)
+def get_global_market_analysis_cached(api_key):
+    if not api_key:
         return "💡 გლობალური ანალიზისთვის მიუთითეთ Gemini API Key."
     try:
-        genai.configure(api_key=gemini_key)
+        genai.configure(api_key=api_key)
         model = genai.GenerativeModel("gemini-3.6-flash")
-        prompt = "შეაფასე საერთაშორისო კრიპტო ბაზრის მიმდინარე გლობალური მდგომარეობა და მოგვეცი ჭკვიანი დასკვნა ქართულად ალტკოინების პამპებზე."
+        prompt = "შეაფასე საერთაშორისო კრიპტო ბაზრის მიმდინარე გლობალური მდგომარეობა და კორპორაციული ინვესტიციების გავლენა ალტკოინების პამპებზე ქართულად."
         response = model.generate_content(prompt)
+        time.sleep(1)
         return response.text
     except Exception as e:
-        return f"გლობალური ანალიზის შეცდომა: {e}"
+        return f"გლობალური ანალიზის ლიმიტი: {e}"
 
-# --- MARKET DATA ENGINE (Binance + CoinGecko Hybrid + RSI Simulation) ---
+# --- MARKET DATA ENGINE ---
+@st.cache_data(ttl=60)
 def fetch_market_data():
     coins_data = []
     binance_prices = {}
@@ -111,7 +116,6 @@ def fetch_market_data():
             if symbol.endswith('USDT'):
                 base_symbol = symbol[:-4].lower()
                 change_val = float(item.get('priceChangePercent', 0))
-                # მარტივი RSI-ის სიმულაცია ცოცხალ ცვლილებაზე დაყრდნობით
                 rsi_approx = min(max(50 + (change_val * 1.5), 10), 90)
                 
                 binance_prices[base_symbol] = {
@@ -164,77 +168,51 @@ def fetch_fear_and_greed():
     except Exception:
         return "N/A", "Unknown"
 
-# --- SMART MONEY DATABASE ---
-SMART_MONEY_DATABASE = {
-    "DWF Labs": {
-        "entity": "DWF Labs (Market Maker)",
-        "partners": ["Wintermute", "Jump Crypto"],
-        "cluster_behavior": "აქტიური მარკეტ-მეიკერი, რომელიც ხშირად აკეთებს პამპებს დაბალი კაპიტალიზაციის ალტკოინებში.",
-        "win_rate": "85%",
-        "avg_pump": "+45%",
-        "risk_level": "საშუალო"
+# --- CORPORATE TREASURY DATABASE ---
+CORPORATE_TREASURY_DATA = {
+    "MicroStrategy (BTC)": {
+        "company": "MicroStrategy Inc.",
+        "asset": "Bitcoin (BTC)",
+        "holding": "190,000+ BTC",
+        "market_impact": "უმაღლესი (ბაზრის ძირითადი დრაივერი)",
+        "behavior": "მუდმივად ყიდულობს უზარმაზარი ოდენობით ბიტკოინს."
     },
-    "a16z Crypto": {
-        "entity": "a16z Crypto (Andreessen Horowitz)",
-        "partners": ["Pantera Capital", "Coinbase Ventures"],
-        "cluster_behavior": "უმსხვილესი ვენჩურული ფონდი, რომელიც აფინანსებს ძლიერ ფუნდამენტურ პროექტებს.",
-        "win_rate": "92%",
-        "avg_pump": "+120%",
-        "risk_level": "დაბალი"
+    "Tesla (BTC & DOGE)": {
+        "company": "Tesla Inc.",
+        "asset": "Bitcoin / Dogecoin",
+        "holding": "9,720+ BTC",
+        "market_impact": "მაღალი",
+        "behavior": "ელონ მასკის კომპანია, რომლის განცხადებებიც იწვევს მყისიერ პამპს."
     },
-    "Binance Labs": {
-        "entity": "Binance Labs (Ecosystem Fund)",
-        "partners": ["DWF Labs", "CMS Holdings"],
-        "cluster_behavior": "ბაინანსის საინვესტიციო ფონდი. როცა ისინი ტოკენში შედიან, ბაზარზე ეს უძლიერეს სიგნალად ითვლება.",
-        "win_rate": "88%",
-        "avg_pump": "+85%",
-        "risk_level": "საშუალო"
-    },
-    "Jump Trading": {
-        "entity": "Jump Trading / Jump Crypto",
-        "partners": ["Wintermute", "DWF Labs"],
-        "cluster_behavior": "გავლენიანი მარკეტ-მეიკერი. აკონტროლებს უზარმაზორ მოცულობებს.",
-        "win_rate": "84%",
-        "avg_pump": "+55%",
-        "risk_level": "მაღალი"
-    },
-    "Pantera Capital": {
-        "entity": "Pantera Capital",
-        "partners": ["a16z Crypto", "Binance Labs"],
-        "cluster_behavior": "უძველესი და წარმატებული კრიპტო ფონდი. მკაცრი ფუნდამენტური აუდიტი.",
-        "win_rate": "90%",
-        "avg_pump": "+95%",
-        "risk_level": "დაბალი"
-    },
-    "Wintermute": {
-        "entity": "Wintermute",
-        "partners": ["Jump Trading", "DWF Labs"],
-        "cluster_behavior": "ტოპ მარკეტ-მეიკერი, რომელიც მართავს ასობით ტოკენის ლიკვიდურობას.",
-        "win_rate": "86%",
-        "avg_pump": "+50%",
-        "risk_level": "საშუალო"
+    "BlackRock / ETFs (BTC & ETH)": {
+        "company": "BlackRock (iShares ETF)",
+        "asset": "Bitcoin & Ethereum",
+        "holding": "მილიარდობით დოლარის აქტივები მართვაში",
+        "market_impact": "კრიტიკულად მაღალი",
+        "behavior": "ყოველდღიურად შთანთქავს უზარმაზარ ლიკვიდურობას ბირჟებიდან."
     }
 }
 
 # --- TABS INTERFACE ---
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "⭐ AI რეკომენდაციები", 
-    "🚀 Pump & Tech (RSI)", 
-    "💼 Portfolio (SQL)",
-    "🔍 Live Search",
+    "🚀 Pump & Tech", 
+    "💼 Portfolio",
+    "🔍 Live Search & Chat",
+    "🏢 კორპორაციული ყიდვები & ჩატი",
     "🕵️‍♂️ Smart Money", 
     "🌐 გლობალური AI",
-    "✈️ Telegram & Alerts"
+    "✈️ Telegram"
 ])
 
 # === TAB 1: AI DAILY RECOMMENDATIONS ===
 with tab1:
-    st.subheader("⭐ AI-ს დღიური ტოპ-ყიდვის სიგნალები & ტექნიკური ზონები")
+    st.subheader("⭐ AI-ს დღიური ტოპ-ყიდვის სიგნალები")
     if st.button("🔮 დღის რეკომენდაციების გენერაცია"):
         with st.spinner("სკანირება და AI ანალიზი მიმდინარეობს..."):
             response = fetch_market_data()
             candidates = [c for c in response if (c.get('current_price') or 0) <= max_price and (c.get('price_change_percentage_24h') or 0) > 3 and (c.get('total_volume') or 0) >= min_volume]
-            top_picks = candidates[:3]
+            top_picks = candidates[:2]
             
             if top_picks:
                 for idx, coin in enumerate(top_picks, 1):
@@ -248,26 +226,26 @@ with tab1:
                     st.success(f"🎯 **რეკომენდაცია #{idx}: {coin['name']} ({coin['symbol'].upper()})**")
                     c1, c2, c3, c4 = st.columns(4)
                     c1.metric("🟢 ყიდვის ზონა", f"${p}")
-                    c2.metric("📊 RSI (14)", f"{rsi}", "📈 ტექნიკური" if rsi < 70 else "⚠️ Overbought")
+                    c2.metric("📊 RSI (14)", f"{rsi}")
                     c3.metric("🎯 TP", f"${tp:.5f}", delta="+30%")
                     c4.metric("🛑 SL", f"${sl:.5f}", delta="-6%")
                     
-                    ai_comment = get_ai_crypto_insight(coin['name'], p, ch, rsi)
+                    ai_comment = get_ai_crypto_insight_cached(gemini_key, coin['name'], p, ch, rsi)
                     st.info(f"💡 **AI ანალიტიკოსი:** {ai_comment}")
                     st.divider()
             else:
                 st.info("მითითებული ფილტრებით შესაფერისი მონეტა ვერ მოიძებნა.")
 
-# === TAB 2: PUMP & TECH (RSI) RADAR ===
+# === TAB 2: PUMP & TECH RADAR ===
 with tab2:
-    st.subheader(f"⚡ Pump & Tech Radar (RSI ინდიკატორით)")
+    st.subheader("⚡ Pump & Tech Radar (RSI ინდიკატორით)")
     if st.button("🔄 ტექნიკური სკანირება"):
         with st.spinner("ბაზრის ანალიზი მიმდინარეობს..."):
             response = fetch_market_data()
             found_pumps = [c for c in response if (c.get('current_price') or 0) <= max_price and (c.get('price_change_percentage_24h') or 0) >= min_growth and (c.get('total_volume') or 0) >= min_volume]
             
             if found_pumps:
-                for item in found_pumps:
+                for item in found_pumps[:5]:
                     p = item.get('current_price') or 0
                     ch = item.get('price_change_percentage_24h') or 0
                     v = item.get('total_volume') or 0
@@ -283,13 +261,11 @@ with tab2:
             else:
                 st.info("მოცემული კრიტერიუმებით პამპი არ დაფიქსირებულა.")
 
-# === TAB 3: PORTFOLIO (SQL) ===
+# === TAB 3: PORTFOLIO ===
 with tab3:
     st.subheader("💼 მუდმივი კრიპტო პორტფელი (SQLite Database)")
-    st.write("შენი პოზიციები ახლა უსაფრთხოდ ინახება ბაზაში და არასდროს წაიშლება.")
-    
     with st.form("sql_portfolio_form"):
-        p_coin = st.text_input("მონეტის სიმბოლო (მაგ: BTC, ETH, TROLL):").upper()
+        p_coin = st.text_input("მონეტის სიმბოლო (მაგ: BTC, ETH):").upper()
         p_amount = st.number_input("რაოდენობა:", value=1.0, step=0.1)
         p_buy_price = st.number_input("ყიდვის საშუალო ფასი ($):", value=0.01, format="%.5f")
         submitted = st.form_submit_button("➕ პოზიციის დამატება ბაზაში")
@@ -330,19 +306,17 @@ with tab3:
         tot_pct = ((total_current_value - total_invested) / total_invested) * 100 if total_invested > 0 else 0
         st.metric("💰 პორტფელის ჯამური ღირებულება", f"${total_current_value:.2f}", f"{tot_pct:+.2f}%")
         
-        if st.button("🗑️ ბაზის გასუფთავება (Clear DB)"):
+        if st.button("🗑️ ბაზის გასუფთავება"):
             clear_db()
             st.rerun()
-    else:
-        st.info("პორტფელის ბაზა ცარიელია.")
 
-# === TAB 4: LIVE SEARCH & RSI ===
+# === TAB 4: LIVE SEARCH & INTERACTIVE AI CHAT ===
 with tab4:
-    st.subheader("🔍 კონკრეტული მონეტის ძებნა & ტექნიკური RSI")
-    search_query = st.text_input("ჩაწერეთ მონეტის სახელი ან სიმბოლო (მაგ: bitcoin, pepe):").strip().lower()
+    st.subheader("🔍 კონკრეტული მონეტის ძებნა & ავტომატური AI ანალიზი + ჩატი")
+    search_query = st.text_input("ჩაწერეთ მონეტის სახელი (მაგ: bitcoin, ethereum, ethena):").strip().lower()
     
     if search_query:
-        with st.spinner("ძებნა და ტექნიკური ანალიზი..."):
+        with st.spinner("მონაცემების მოძიება და AI ანალიზი..."):
             response = fetch_market_data()
             matched_coin = next((c for c in response if search_query in c['name'].lower() or search_query in c['symbol'].lower()), None)
             
@@ -359,47 +333,89 @@ with tab4:
                 sc3.metric("RSI ინდიკატორი", f"{rsi}")
                 sc4.metric("მოცულობა", f"${cv:,.0f}")
                 
-                ai_search_insight = get_ai_crypto_insight(matched_coin['name'], cp, cc, rsi)
-                st.info(f"💡 **Gemini AI შეფასება:** {ai_search_insight}")
+                ai_search_insight = get_ai_crypto_insight_cached(gemini_key, matched_coin['name'], cp, cc, rsi)
+                st.info(f"💡 **Gemini AI ავტომატური შეფასება:**\n\n{ai_search_insight}")
+                
+                st.divider()
+                st.write("💬 **დაუსვი დამატებითი კითხვები ამ მონეტაზე Gemini-ს:**")
+                user_question = st.text_input("შენი შეკითხვა მონეტაზე:", key="custom_ai_question")
+                if user_question:
+                    if not gemini_key:
+                        st.warning("⚠️ გთხოვთ მიუთითოთ Gemini API Key გვერდითა პანელში.")
+                    else:
+                        with st.spinner("Gemini ფიქრობს პასუხზე..."):
+                            try:
+                                genai.configure(api_key=gemini_key)
+                                chat_model = genai.GenerativeModel("gemini-3.6-flash")
+                                full_prompt = f"კრიპტოვალუტა: {matched_coin['name']} (${cp}, ზრდა: {cc}%, RSI: {rsi}). მომხმარებლის კითხვა ქართულად: {user_question}. გასცე დეტალური და პროფესიონალური პასუხი ქართულად."
+                                chat_response = chat_model.generate_content(full_prompt)
+                                st.success(f"🤖 **Gemini პასუხი:**\n\n{chat_response.text}")
+                            except Exception as e:
+                                st.error(f"ჩატის შეცდომა (გთხოვთ დაელოდოთ 1 წუთი): {e}")
             else:
                 st.warning("მონეტა ვერ მოიძებნა.")
 
-# === TAB 5: SMART MONEY ===
+# === TAB 5: CORPORATE TREASURY & INTERACTIVE CHAT ===
 with tab5:
-    st.subheader("🔗 ინსაიდერების კლასტერული ანალიზი")
-    selected_wallet = st.selectbox("აირჩიეთ ფონდი:", list(SMART_MONEY_DATABASE.keys()))
-    wallet_data = SMART_MONEY_DATABASE[selected_wallet]
+    st.subheader("🏢 კორპორაციული ყიდვები & ინტერაქტიული ჩატი")
+    selected_corp = st.selectbox("აირჩიეთ კომპანია / ფონდი:", list(CORPORATE_TREASURY_DATA.keys()))
+    corp_info = CORPORATE_TREASURY_DATA[selected_corp]
     
-    col_a, col_b = st.columns(2)
-    with col_a:
+    col1, col2 = st.columns(2)
+    with col1:
         st.markdown(f"""
-        * **ორგანიზაცია:** `{wallet_data['entity']}`
-        * **Win Rate:** `{wallet_data['win_rate']}`
-        * **საშუალო ზრდა:** `{wallet_data['avg_pump']}`
+        * **კომპანია:** `{corp_info['company']}`
+        * **აქტივი:** `{corp_info['asset']}`
         """)
-    with col_b:
+    with col2:
         st.markdown(f"""
-        * **რისკი:** `{wallet_data['risk_level']}`
-        * **პარტნიორები:** `{', '.join(wallet_data['partners'])}`
+        * **აქტივები ბალანსზე:** `{corp_info['holding']}`
+        * **ბაზარზე გავლენა:** `{corp_info['market_impact']}`
         """)
-    st.info(f"🧠 **ქცევის ანალიზი:** {wallet_data['cluster_behavior']}")
+    st.info(f"📈 **სტრატეგიული ქცევა:** {corp_info['behavior']}")
+    
+    st.divider()
+    st.write(f"💬 **დაუსვი კითხვა Gemini-ს {corp_info['company']}-ს კრიპტო სტრატეგიაზე:**")
+    corp_user_question = st.text_input("შენი შეკითხვა კორპორაციულ შესყიდვებზე:", key="corp_ai_question")
+    
+    if corp_user_question:
+        if not gemini_key:
+            st.warning("⚠️ გთხოვთ მიუთითოთ Gemini API Key გვერდითა პანელში.")
+        else:
+            with st.spinner("Gemini აანალიზებს კორპორაციულ მონაცემებს..."):
+                try:
+                    genai.configure(api_key=gemini_key)
+                    corp_chat_model = genai.GenerativeModel("gemini-3.6-flash")
+                    corp_prompt = f"კომპანია: {corp_info['company']}, აქტივი: {corp_info['asset']}, ბალანსი: {corp_info['holding']}, გავლენა: {corp_info['market_impact']}. მომხმარებლის კითხვა ქართულად: {corp_user_question}. გასცე ღრმა ფინანსური ანალიზი და პასუხი ქართულად."
+                    corp_response = corp_chat_model.generate_content(corp_prompt)
+                    st.success(f"🤖 **Gemini პასუხი კორპორაციულ სტრატეგიაზე:**\n\n{corp_response.text}")
+                except Exception as e:
+                    st.error(f"ჩატის შეცდომა (გთხოვთ დაელოდოთ 1 წუთი): {e}")
 
-# === TAB 6: GLOBAL AI ===
+# === TAB 6: SMART MONEY ===
 with tab6:
-    st.subheader("🌐 გლობალური ბაზრის AI ანალიზი & Fear & Greed Index")
+    st.subheader("🕵️‍♂️ მარკეტ-მეიკერების კლასტერი")
+    st.markdown("""
+    * **DWF Labs / Wintermute / Jump Trading:** აქტიური მარკეტ-მეიკერები, რომლებიც აკონტროლებენ ლიკვიდურობას.
+    * **Binance Labs / a16z:** ვენჩურული ფონდები, რომელთა პორტფელში შესვლაც ფუნდამენტურ ზრდას უზრუნველყოფს.
+    """)
+
+# === TAB 7: GLOBAL AI ===
+with tab7:
+    st.subheader("🌐 გლობალური ბაზრის AI ანალიზი & Fear & Greed")
     fng_val, fng_text = fetch_fear_and_greed()
     st.metric("📊 Fear & Greed Index", f"{fng_val}/100", fng_text)
     st.divider()
     
     if st.button("🌍 გლობალური მაკრო ანალიზის გენერაცია"):
         with st.spinner("ანალიზის მომზადება..."):
-            global_insight = get_global_market_analysis()
+            global_insight = get_global_market_analysis_cached(gemini_key)
             st.success("🎯 **გლობალური სტრატეგიული შეფასება:**")
             st.markdown(global_insight)
 
-# === TAB 7: TELEGRAM & ALERTS ===
-with tab7:
+# === TAB 8: TELEGRAM ===
+with tab8:
     st.subheader("✈️ Telegram ბოტით სიგნალების გაგზავნა")
-    t_title = st.text_input("შეტყობინების ტექსტი:", "🚀 PUMP ALERT: ტექნიკური სიგნალი ბაზარზე!")
+    t_title = st.text_input("შეტყობინების ტექსტი:", "🚀 PUMP ALERT: სიგნალი ბაზარზე!")
     if st.button("✈️ გაგზავნე Telegram-ში"):
         send_telegram_alert(t_title)
