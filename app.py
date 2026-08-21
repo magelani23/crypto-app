@@ -55,7 +55,7 @@ def get_ai_crypto_insight(coin_name, price, change):
         return "💡 **AI ანალიტიკოსი:** გთხოვთ მიუთითოთ Gemini API Key გვერდითა პანელში."
     try:
         genai.configure(api_key=gemini_key)
-        model = genai.GenerativeModel("gemini-pro")
+        model = genai.GenerativeModel("gemini-3.6-flash")
         prompt = f"მოკლედ, ქართულად შეაფასე კრიპტოვალუტა {coin_name}, რომლის ფასია ${price} და 24სთ ზრდაა {change}%. მიეცი მოკლე რჩევა ტრეიდერს."
         response = model.generate_content(prompt)
         return response.text
