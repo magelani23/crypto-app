@@ -3,17 +3,16 @@ import requests
 import sqlite3
 import time
 import google.generativeai as genai
-import plotly.express as px
 
 # 1. გვერდის კონფიგურაცია
 st.set_page_config(
-    page_title="Crypto AI Ultimate Pro + Corporate Chat",
+    page_title="Crypto AI Ultimate Pro + Whale Watcher",
     page_icon="🧠",
     layout="wide"
 )
 
-st.title("🧠 Crypto AI: Ultimate Pro + Interactive AI Chats")
-st.caption("Binance & CoinGecko ჰიბრიდი + კორპორაციული ყიდვები ინტერაქტიული ჩატით, RSI და პორტფელი")
+st.title("🧠 Crypto AI: Ultimate Pro + Whale Watcher & Chat")
+st.caption("Binance & CoinGecko ჰიბრიდი + კორპორაციული ყიდვები, RSI, პორტფელი და ვეშაპების მონიტორინგი")
 
 # --- DATABASE SETUP (SQLite for Portfolio) ---
 def init_db():
@@ -52,7 +51,8 @@ def clear_db():
 st.sidebar.header("⚙️ სისტემის პარამეტრები")
 gemini_key = st.sidebar.text_input("Gemini API Key:", type="password")
 telegram_token = st.sidebar.text_input("Telegram Bot Token:", type="password")
-telegram_chat_id = st.sidebar.text_input("Telegram Chat ID:")
+telegram_chat_id = st.sidebar.text_input("Telegram Chat ID:", type="password")
+whale_api = st.sidebar.text_input("Whale Alert API Key:", type="password")
 
 st.sidebar.divider()
 st.sidebar.subheader("🎯 პამპის და ფილტრაციის პარამეტრები")
@@ -63,18 +63,15 @@ min_volume = st.sidebar.number_input("მინ. 24სთ მოცულობ�
 # --- TELEGRAM ALERT FUNCTION ---
 def send_telegram_alert(message):
     if not telegram_token or not telegram_chat_id:
-        st.warning("⚠️ მიუთითეთ Telegram Bot Token და Chat ID გვერდითა პანელში.")
         return
     url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
     payload = {"chat_id": telegram_chat_id, "text": message, "parse_mode": "Markdown"}
     try:
-        res = requests.post(url, json=payload, timeout=5)
-        if res.status_code == 200:
-            st.toast("✅ Telegram შეტყობინება გაიგზავნა!", icon="✈️")
-    except Exception as e:
-        st.error(f"Telegram შეცდომა: {e}")
+        requests.post(url, json=payload, timeout=5)
+    except Exception:
+        pass
 
-# --- GEMINI AI FUNCTIONS (WITH CACHING TO PREVENT 429 ERROR) ---
+# --- GEMINI AI FUNCTIONS (WITH CACHING) ---
 @st.cache_data(ttl=600)
 def get_ai_crypto_insight_cached(api_key, coin_name, price, change, rsi_val):
     if not api_key:
@@ -168,7 +165,29 @@ def fetch_fear_and_greed():
     except Exception:
         return "N/A", "Unknown"
 
-# --- CORPORATE TREASURY DATABASE ---
+# --- WHALE ALERT FUNCTIONS ---
+def fetch_whale_transactions(api_key):
+    url = f"https://api.whale-alert.io/v1/transactions?api_key={api_key}&min_value=1000000&limit=5"
+    try:
+        response = requests.get(url, timeout=10)
+        return response.json().get('transactions', [])
+    except Exception:
+        return []
+
+def start_whale_watcher(api_key, tg_token, tg_chat_id):
+    last_tx_hash = ""
+    while True:
+        transactions = fetch_whale_transactions(api_key)
+        if transactions:
+            tx = transactions[0]
+            if tx['hash'] != last_tx_hash:
+                last_tx_hash = tx['hash']
+                alert_msg = f"🐋 **ახალი ვეშაპი დაფიქსირდა!**\n\n💰 **თანხა:** ${tx['amount_usd']:,.0f}\n🪙 **მონეტა:** {tx['symbol'].upper()}\n🔄 **სად:** {tx['from']['owner']} -> {tx['to']['owner']}"
+                requests.post(f"https://api.telegram.org/bot{tg_token}/sendMessage", 
+                              json={"chat_id": tg_chat_id, "text": alert_msg, "parse_mode": "Markdown"})
+        time.sleep(300)
+
+# --- CORPORATE TREASURY DATA ---
 CORPORATE_TREASURY_DATA = {
     "MicroStrategy (BTC)": {
         "company": "MicroStrategy Inc.",
@@ -194,12 +213,13 @@ CORPORATE_TREASURY_DATA = {
 }
 
 # --- TABS INTERFACE ---
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
     "⭐ AI რეკომენდაციები", 
     "🚀 Pump & Tech", 
     "💼 Portfolio",
     "🔍 Live Search & Chat",
-    "🏢 კორპორაციული ყიდვები & ჩატი",
+    "🏢 კორპორაციული ყიდვები",
+    "🐳 Whale Watcher",
     "🕵️‍♂️ Smart Money", 
     "🌐 გლობალური AI",
     "✈️ Telegram"
@@ -217,7 +237,6 @@ with tab1:
             if top_picks:
                 for idx, coin in enumerate(top_picks, 1):
                     p = coin.get('current_price') or 0
-                    vol = coin.get('total_volume') or 0
                     ch = coin.get('price_change_percentage_24h') or 0
                     rsi = coin.get('rsi', 50)
                     tp = p * 1.30
@@ -245,7 +264,7 @@ with tab2:
             found_pumps = [c for c in response if (c.get('current_price') or 0) <= max_price and (c.get('price_change_percentage_24h') or 0) >= min_growth and (c.get('total_volume') or 0) >= min_volume]
             
             if found_pumps:
-                for item in found_pumps[:5]:
+                for item in found_pumps[:3]: # ლიმიტი 3, რომ 429 შეცდომა აიცილოთ თავიდან
                     p = item.get('current_price') or 0
                     ch = item.get('price_change_percentage_24h') or 0
                     v = item.get('total_volume') or 0
@@ -257,6 +276,9 @@ with tab2:
                     col2.metric("24სთ ზრდა", f"+{ch:.2f}%")
                     col3.metric("RSI ინდექსი", f"{rsi}")
                     col4.metric("მოცულობა", f"${v:,.0f}")
+                    
+                    ai_pump_comment = get_ai_crypto_insight_cached(gemini_key, item['name'], p, ch, rsi)
+                    st.info(f"🤖 **Gemini შეფასება პამპზე:** {ai_pump_comment}")
                     st.divider()
             else:
                 st.info("მოცემული კრიტერიუმებით პამპი არ დაფიქსირებულა.")
@@ -302,7 +324,6 @@ with tab3:
             cols[4].metric("PnL", f"${pnl:.2f}", f"{pnl_pct:+.2f}%")
             
         st.divider()
-        total_pnl = total_current_value - total_invested
         tot_pct = ((total_current_value - total_invested) / total_invested) * 100 if total_invested > 0 else 0
         st.metric("💰 პორტფელის ჯამური ღირებულება", f"${total_current_value:.2f}", f"{tot_pct:+.2f}%")
         
@@ -351,11 +372,11 @@ with tab4:
                                 chat_response = chat_model.generate_content(full_prompt)
                                 st.success(f"🤖 **Gemini პასუხი:**\n\n{chat_response.text}")
                             except Exception as e:
-                                st.error(f"ჩატის შეცდომა (გთხოვთ დაელოდოთ 1 წუთი): {e}")
+                                st.error(f"ჩატის შეცდომა: {e}")
             else:
                 st.warning("მონეტა ვერ მოიძებნა.")
 
-# === TAB 5: CORPORATE TREASURY & INTERACTIVE CHAT ===
+# === TAB 5: CORPORATE TREASURY ===
 with tab5:
     st.subheader("🏢 კორპორაციული ყიდვები & ინტერაქტიული ჩატი")
     selected_corp = st.selectbox("აირჩიეთ კომპანია / ფონდი:", list(CORPORATE_TREASURY_DATA.keys()))
@@ -386,22 +407,72 @@ with tab5:
                 try:
                     genai.configure(api_key=gemini_key)
                     corp_chat_model = genai.GenerativeModel("gemini-3.6-flash")
-                    corp_prompt = f"კომპანია: {corp_info['company']}, აქტივი: {corp_info['asset']}, ბალანსი: {corp_info['holding']}, გავლენა: {corp_info['market_impact']}. მომხმარებლის კითხვა ქართულად: {corp_user_question}. გასცე ღრმა ფინანსური ანალიზი და პასუხი ქართულად."
+                    corp_prompt = f"კომპანია: {corp_info['company']}, აქტივი: {corp_info['asset']}, ბალანსი: {corp_info['holding']}, გავლენა: {corp_info['market_impact']}. მომხმარებლის კითხვა ქართულად: {corp_user_question}. გასცე ღრმა ფინანსური ანალიზი ქართულად."
                     corp_response = corp_chat_model.generate_content(corp_prompt)
                     st.success(f"🤖 **Gemini პასუხი კორპორაციულ სტრატეგიაზე:**\n\n{corp_response.text}")
                 except Exception as e:
-                    st.error(f"ჩატის შეცდომა (გთხოვთ დაელოდოთ 1 წუთი): {e}")
+                    st.error(f"ჩატის შეცდომა: {e}")
 
-# === TAB 6: SMART MONEY ===
+# === TAB 6: WHALE WATCHER & CHAT ===
 with tab6:
+    st.subheader("🐳 Whale Watcher: ცოცხალი მონიტორინგი & AI ჩატი")
+    
+    if st.button("🌊 ვეშაპების ბოლო ტრანზაქციების განახლება"):
+        if not whale_api:
+            st.warning("⚠️ გთხოვთ მიუთითოთ Whale Alert API Key გვერდითა პანელში.")
+        else:
+            with st.spinner("ვეშაპების მონაცემების მოძიება..."):
+                txs = fetch_whale_transactions(whale_api)
+                if txs:
+                    table_data = []
+                    for tx in txs:
+                        table_data.append({
+                            "Symbol": tx['symbol'].upper(),
+                            "Amount ($)": f"${tx['amount_usd']:,.0f}",
+                            "From": tx['from']['owner'],
+                            "To": tx['to']['owner']
+                        })
+                    st.table(table_data)
+                else:
+                    st.warning("ვეშაპების ტრანზაქცია ამ მომენტში ვერ მოიძებნა.")
+
+    st.divider()
+    st.write("💬 **დაუსვი კითხვა Gemini-ს ვეშაპების აქტივობაზე და მათ გავლენაზე ბაზარზე:**")
+    whale_question = st.text_input("შენი შეკითხვა ვეშაპებზე:", key="whale_ai_chat_input")
+    
+    if whale_question:
+        if not gemini_key:
+            st.warning("⚠️ გთხოვთ მიუთითოთ Gemini API Key გვერდითა პანელში.")
+        else:
+            with st.spinner("Gemini აანალიზებს ვეშაპების ქცევას..."):
+                try:
+                    genai.configure(api_key=gemini_key)
+                    model = genai.GenerativeModel("gemini-3.6-flash")
+                    prompt = f"კრიპტოვალუტების ბაზარი, ვეშაპების (დიდი ინვესტორების) აქტივობა და ტრანზაქციები. მომხმარებლის კითხვა ქართულად: {whale_question}. გასცე ღრმა და პროფესიონალური ფინანსური ანალიზი ქართულად."
+                    response = model.generate_content(prompt)
+                    time.sleep(1)
+                    st.success(f"🤖 **Gemini პასუხი ვეშაპების ანალიზზე:**\n\n{response.text}")
+                except Exception as e:
+                    st.error(f"ჩატის შეცდომა: {e}")
+
+    st.divider()
+    if st.sidebar.button("▶️ 5-წუთიანი ავტო-მონიტორინგის გაშვება"):
+        if not whale_api or not telegram_token or not telegram_chat_id:
+            st.sidebar.error("⚠️ მიუთითეთ ყველა API Key (Whale Alert & Telegram)!")
+        else:
+            st.sidebar.info("🤖 მონიტორინგი გაშვებულია. შეტყობინებები მივა Telegram-ში.")
+            start_whale_watcher(whale_api, telegram_token, telegram_chat_id)
+
+# === TAB 7: SMART MONEY ===
+with tab7:
     st.subheader("🕵️‍♂️ მარკეტ-მეიკერების კლასტერი")
     st.markdown("""
     * **DWF Labs / Wintermute / Jump Trading:** აქტიური მარკეტ-მეიკერები, რომლებიც აკონტროლებენ ლიკვიდურობას.
     * **Binance Labs / a16z:** ვენჩურული ფონდები, რომელთა პორტფელში შესვლაც ფუნდამენტურ ზრდას უზრუნველყოფს.
     """)
 
-# === TAB 7: GLOBAL AI ===
-with tab7:
+# === TAB 8: GLOBAL AI ===
+with tab8:
     st.subheader("🌐 გლობალური ბაზრის AI ანალიზი & Fear & Greed")
     fng_val, fng_text = fetch_fear_and_greed()
     st.metric("📊 Fear & Greed Index", f"{fng_val}/100", fng_text)
@@ -413,9 +484,10 @@ with tab7:
             st.success("🎯 **გლობალური სტრატეგიული შეფასება:**")
             st.markdown(global_insight)
 
-# === TAB 8: TELEGRAM ===
-with tab8:
+# === TAB 9: TELEGRAM ===
+with tab9:
     st.subheader("✈️ Telegram ბოტით სიგნალების გაგზავნა")
     t_title = st.text_input("შეტყობინების ტექსტი:", "🚀 PUMP ALERT: სიგნალი ბაზარზე!")
     if st.button("✈️ გაგზავნე Telegram-ში"):
         send_telegram_alert(t_title)
+        st.toast("✅ შეტყობინება გაიგზავნა!")
