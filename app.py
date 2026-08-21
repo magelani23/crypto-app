@@ -31,8 +31,15 @@ if st.button("🔮 დღის რეკომენდაციების �
             genai.configure(api_key=gemini_key)
             model = genai.GenerativeModel('gemini-3.6-flash')
             
-            prompt = "Act as an expert crypto analyst. Give 3 potential low-cap cryptocurrency buy picks with high growth potential today, explaining the reasons briefly in Georgian language."
-            
+            prompt = """Act as an expert crypto analyst, insider, and Smart Money tracker. 
+Provide 3 top potential low-cap crypto coins for today that have a high probability of a 10%+ pump. 
+For each coin, please provide:
+1. Token Name and Ticker (with market cap/volume details)
+2. Sector (e.g., AI, DePIN, RWA, Meme, etc.)
+3. Why it's pumping / Catalysts (partnerships, volume spike, ecosystem news)
+4. Estimated growth expectations for both the next 12 hours and 24 hours (in percentages)
+5. Smart Money / Insider connection or market trend alignment
+Format the response clearly and professionally."""
             response = model.generate_content(prompt)
             st.success("მონაცემები წარმატებით გაანალიზდა!")
             st.write(response.text)
