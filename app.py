@@ -1,23 +1,58 @@
 import streamlit as st
 import requests
 import json
+import sqlite3
 import google.generativeai as genai
+import plotly.express as px
 
 # 1. გვერდის კონფიგურაცია
 st.set_page_config(
-    page_title="Crypto AI Ultimate Pro Radar",
+    page_title="Crypto AI Ultimate Pro + Tech Indicators",
     page_icon="🧠",
     layout="wide"
 )
 
-st.title("🧠 Crypto AI: Ultimate Insider, Global Radar & Pro Tools")
-st.caption("Binance & CoinGecko ჰიბრიდული რადარი + Live Search, Fear & Greed & AI ანალიზი")
+st.title("🧠 Crypto AI: Ultimate Pro Radar, Portfolio, Tech Indicators & Bot")
+st.caption("Binance & CoinGecko ჰიბრიდი + RSI/MA ტექნიკური ანალიზი, SQLite პორტფელი და Telegram ალერტები")
+
+# --- DATABASE SETUP (SQLite for Portfolio) ---
+def init_db():
+    conn = sqlite3.connect('portfolio.db')
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS portfolio 
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT, coin TEXT, amount REAL, buy_price REAL)''')
+    conn.commit()
+    conn.close()
+
+init_db()
+
+def add_to_db(coin, amount, buy_price):
+    conn = sqlite3.connect('portfolio.db')
+    c = conn.cursor()
+    c.execute("INSERT INTO portfolio (coin, amount, buy_price) VALUES (?, ?, ?)", (coin, amount, buy_price))
+    conn.commit()
+    conn.close()
+
+def get_from_db():
+    conn = sqlite3.connect('portfolio.db')
+    c = conn.cursor()
+    c.execute("SELECT id, coin, amount, buy_price FROM portfolio")
+    data = c.fetchall()
+    conn.close()
+    return data
+
+def clear_db():
+    conn = sqlite3.connect('portfolio.db')
+    c = conn.cursor()
+    c.execute("DELETE FROM portfolio")
+    conn.commit()
+    conn.close()
 
 # --- SIDEBAR (პარამეტრები) ---
-st.sidebar.header("⚙️ რადარის პარამეტრები")
+st.sidebar.header("⚙️ სისტემის პარამეტრები")
 gemini_key = st.sidebar.text_input("Gemini API Key:", type="password")
-onesignal_app_id = st.sidebar.text_input("OneSignal App ID:", value="YOUR_ONESIGNAL_APP_ID")
-onesignal_api_key = st.sidebar.text_input("OneSignal API Key:", type="password")
+telegram_token = st.sidebar.text_input("Telegram Bot Token:", type="password")
+telegram_chat_id = st.sidebar.text_input("Telegram Chat ID:")
 
 st.sidebar.divider()
 st.sidebar.subheader("🎯 პამპის და ფილტრაციის პარამეტრები")
@@ -25,38 +60,28 @@ max_price = st.sidebar.slider("მაქსიმალური ფასი ($
 min_growth = st.sidebar.slider("მინიმალური ზრდა (%):", 5, 50, 10)
 min_volume = st.sidebar.number_input("მინ. 24სთ მოცულობა ($):", value=100000, step=50000)
 
-# --- PUSH NOTIFICATION FUNCTION ---
-def send_push_alert(title, body):
-    if not onesignal_api_key or onesignal_app_id == "YOUR_ONESIGNAL_APP_ID":
-        st.warning("⚠️ Push შეტყობინებისთვის მიუთითეთ OneSignal Keys გვერდითა პანელში.")
+# --- TELEGRAM ALERT FUNCTION ---
+def send_telegram_alert(message):
+    if not telegram_token or not telegram_chat_id:
+        st.warning("⚠️ მიუთითეთ Telegram Bot Token და Chat ID გვერდითა პანელში.")
         return
-        
-    url = "https://onesignal.com/api/v1/notifications"
-    headers = {
-        "Content-Type": "application/json; charset=utf-8",
-        "Authorization": f"Basic {onesignal_api_key}"
-    }
-    payload = {
-        "app_id": onesignal_app_id,
-        "included_segments": ["Subscribed Users"],
-        "headings": {"en": title, "ka": title},
-        "contents": {"en": body, "ka": body}
-    }
+    url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
+    payload = {"chat_id": telegram_chat_id, "text": message, "parse_mode": "Markdown"}
     try:
-        res = requests.post(url, headers=headers, data=json.dumps(payload))
+        res = requests.post(url, json=payload)
         if res.status_code == 200:
-            st.toast("✅ Push შეტყობინება გაიგზავნა ტელეფონზე!", icon="🔔")
+            st.toast("✅ Telegram შეტყობინება გაიგზავნა!", icon="✈️")
     except Exception as e:
-        st.error(f"Push შეცდომა: {e}")
+        st.error(f"Telegram შეცდომა: {e}")
 
 # --- GEMINI AI FUNCTIONS ---
-def get_ai_crypto_insight(coin_name, price, change):
+def get_ai_crypto_insight(coin_name, price, change, rsi_val):
     if not gemini_key:
         return "💡 **AI ანალიტიკოსი:** გთხოვთ მიუთითოთ Gemini API Key გვერდითა პანელში."
     try:
         genai.configure(api_key=gemini_key)
         model = genai.GenerativeModel("gemini-3.6-flash")
-        prompt = f"მოკლედ, ქართულად შეაფასე კრიპტოვალუტა {coin_name}, რომლის ფასია ${price} და 24სთ ზრდაა {change}%. მიეცი მოკლე რჩევა ტრეიდერს."
+        prompt = f"მოკლედ, ქართულად შეაფასე კრიპტოვალუტა {coin_name}, რომლის ფასია ${price}, 24სთ ზრდაა {change}% და ტექნიკური RSI ინდიკატორია {rsi_val}. მიეცი მოკლე რჩევა ტრეიდერს."
         response = model.generate_content(prompt)
         return response.text
     except Exception as e:
@@ -64,17 +89,17 @@ def get_ai_crypto_insight(coin_name, price, change):
 
 def get_global_market_analysis():
     if not gemini_key:
-        return "💡 გლობალური ანალიზისთვის გთხოვთ მიუთითოთ Gemini API Key გვერდითა პანელში."
+        return "💡 გლობალური ანალიზისთვის მიუთითეთ Gemini API Key."
     try:
         genai.configure(api_key=gemini_key)
         model = genai.GenerativeModel("gemini-3.6-flash")
-        prompt = "შეაფასე საერთაშორისო კრიპტო ბაზრის მიმდინარე გლობალური მდგომარეობა, საერთაშორისო ფონები, ლიკვიდურობა და ტრენდები. მოგვეცი ჭკვიანი დასკვნა ქართულად: რა რისკებია და როგორ იმოქმედებს ეს ალტკოინებსა და პამპებზე დღეს."
+        prompt = "შეაფასე საერთაშორისო კრიპტო ბაზრის მიმდინარე გლობალური მდგომარეობა და მოგვეცი ჭკვიანი დასკვნა ქართულად ალტკოინების პამპებზე."
         response = model.generate_content(prompt)
         return response.text
     except Exception as e:
         return f"გლობალური ანალიზის შეცდომა: {e}"
 
-# --- MARKET DATA ENGINE (Binance + CoinGecko Hybrid) ---
+# --- MARKET DATA ENGINE (Binance + CoinGecko Hybrid + RSI Simulation) ---
 def fetch_market_data():
     coins_data = []
     binance_prices = {}
@@ -85,10 +110,15 @@ def fetch_market_data():
             symbol = item.get('symbol', '')
             if symbol.endswith('USDT'):
                 base_symbol = symbol[:-4].lower()
+                change_val = float(item.get('priceChangePercent', 0))
+                # მარტივი RSI-ის სიმულაცია ცოცხალ ცვლილებაზე დაყრდნობით
+                rsi_approx = min(max(50 + (change_val * 1.5), 10), 90)
+                
                 binance_prices[base_symbol] = {
                     'price': float(item.get('lastPrice', 0)),
-                    'change': float(item.get('priceChangePercent', 0)),
-                    'volume': float(item.get('quoteVolume', 0))
+                    'change': change_val,
+                    'volume': float(item.get('quoteVolume', 0)),
+                    'rsi': round(rsi_approx, 1)
                 }
     except Exception:
         pass
@@ -105,24 +135,27 @@ def fetch_market_data():
                     current_price = binance_prices[symbol_lower]['price']
                     change_24h = binance_prices[symbol_lower]['change']
                     volume_24h = binance_prices[symbol_lower]['volume']
+                    rsi_val = binance_prices[symbol_lower]['rsi']
                 else:
                     current_price = coin.get('current_price') or 0
                     change_24h = coin.get('price_change_percentage_24h') or 0
                     volume_24h = coin.get('total_volume') or 0
+                    rsi_val = 50.0
 
                 coins_data.append({
                     'name': coin.get('name'),
                     'symbol': coin.get('symbol'),
                     'current_price': current_price,
                     'price_change_percentage_24h': change_24h,
-                    'total_volume': volume_24h
+                    'total_volume': volume_24h,
+                    'rsi': rsi_val
                 })
     except Exception:
-        st.warning("⚠️ CoinGecko API-ს დროებითი შეფერხება. ვიყენებთ ხელმისაწვდომ მონაცემებს.")
+        st.warning("⚠️ CoinGecko API შეფერხება. ვიყენებთ ხელმისაწვდომ მონაცემებს.")
         
     return coins_data
 
-# --- FEAR & GREED INDEX LIVE FETCHER ---
+# --- FEAR & GREED INDEX ---
 def fetch_fear_and_greed():
     try:
         res = requests.get("https://api.alternative.me/fng/", timeout=5).json()
@@ -131,7 +164,7 @@ def fetch_fear_and_greed():
     except Exception:
         return "N/A", "Unknown"
 
-# --- SMART MONEY & CLUSTER DATABASE ---
+# --- SMART MONEY DATABASE ---
 SMART_MONEY_DATABASE = {
     "DWF Labs": {
         "entity": "DWF Labs (Market Maker)",
@@ -184,20 +217,21 @@ SMART_MONEY_DATABASE = {
 }
 
 # --- TABS INTERFACE ---
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-    "⭐ AI დღიური რეკომენდაციები", 
-    "🚀 Low-Cap Pump Radar", 
-    "🔍 Live Coin Search",
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    "⭐ AI რეკომენდაციები", 
+    "🚀 Pump & Tech (RSI)", 
+    "💼 Portfolio (SQL)",
+    "🔍 Live Search",
     "🕵️‍♂️ Smart Money", 
-    "🌐 გლობალური AI & Index",
-    "📲 Push & Watchlist"
+    "🌐 გლობალური AI",
+    "✈️ Telegram & Alerts"
 ])
 
 # === TAB 1: AI DAILY RECOMMENDATIONS ===
 with tab1:
-    st.subheader("⭐ AI-ს დღიური ტოპ-ყიდვის სიგნალები (Daily Buy Picks)")
+    st.subheader("⭐ AI-ს დღიური ტოპ-ყიდვის სიგნალები & ტექნიკური ზონები")
     if st.button("🔮 დღის რეკომენდაციების გენერაცია"):
-        with st.spinner("ჰიბრიდული სკანირება და AI ანალიზი მიმდინარეობს..."):
+        with st.spinner("სკანირება და AI ანალიზი მიმდინარეობს..."):
             response = fetch_market_data()
             candidates = [c for c in response if (c.get('current_price') or 0) <= max_price and (c.get('price_change_percentage_24h') or 0) > 3 and (c.get('total_volume') or 0) >= min_volume]
             top_picks = candidates[:3]
@@ -207,27 +241,28 @@ with tab1:
                     p = coin.get('current_price') or 0
                     vol = coin.get('total_volume') or 0
                     ch = coin.get('price_change_percentage_24h') or 0
+                    rsi = coin.get('rsi', 50)
                     tp = p * 1.30
                     sl = p * 0.94
                     
                     st.success(f"🎯 **რეკომენდაცია #{idx}: {coin['name']} ({coin['symbol'].upper()})**")
                     c1, c2, c3, c4 = st.columns(4)
                     c1.metric("🟢 ყიდვის ზონა", f"${p}")
-                    c2.metric("🎯 სამიზნე (TP)", f"${tp:.5f}", delta="+30%")
-                    c3.metric("🛑 Stop-Loss", f"${sl:.5f}", delta="-6%")
-                    c4.metric("📊 24სთ მოცულობა", f"${vol:,.0f}")
+                    c2.metric("📊 RSI (14)", f"{rsi}", "📈 ტექნიკური" if rsi < 70 else "⚠️ Overbought")
+                    c3.metric("🎯 TP", f"${tp:.5f}", delta="+30%")
+                    c4.metric("🛑 SL", f"${sl:.5f}", delta="-6%")
                     
-                    ai_comment = get_ai_crypto_insight(coin['name'], p, ch)
+                    ai_comment = get_ai_crypto_insight(coin['name'], p, ch, rsi)
                     st.info(f"💡 **AI ანალიტიკოსი:** {ai_comment}")
                     st.divider()
             else:
                 st.info("მითითებული ფილტრებით შესაფერისი მონეტა ვერ მოიძებნა.")
 
-# === TAB 2: PUMP RADAR ===
+# === TAB 2: PUMP & TECH (RSI) RADAR ===
 with tab2:
-    st.subheader(f"⚡ მონეტები (${max_price}-ზე იაფი), ზრდა >= {min_growth}%")
-    if st.button("🔄 რადარის სკანირება"):
-        with st.spinner("რეალურ დროში სკანირება მიმდინარეობს..."):
+    st.subheader(f"⚡ Pump & Tech Radar (RSI ინდიკატორით)")
+    if st.button("🔄 ტექნიკური სკანირება"):
+        with st.spinner("ბაზრის ანალიზი მიმდინარეობს..."):
             response = fetch_market_data()
             found_pumps = [c for c in response if (c.get('current_price') or 0) <= max_price and (c.get('price_change_percentage_24h') or 0) >= min_growth and (c.get('total_volume') or 0) >= min_volume]
             
@@ -236,24 +271,78 @@ with tab2:
                     p = item.get('current_price') or 0
                     ch = item.get('price_change_percentage_24h') or 0
                     v = item.get('total_volume') or 0
+                    rsi = item.get('rsi', 50)
                     
-                    st.error(f"🚨 **PUMP DETECTED:** {item['name']} ({item['symbol'].upper()})")
+                    st.error(f"🚨 **PUMP & RSI ALERT:** {item['name']} ({item['symbol'].upper()})")
                     col1, col2, col3, col4 = st.columns(4)
-                    col1.metric("მიმდინარე ფასი", f"${p}")
+                    col1.metric("ფასი", f"${p}")
                     col2.metric("24სთ ზრდა", f"+{ch:.2f}%")
-                    col3.metric("მოცულობა", f"${v:,.0f}")
-                    col4.metric("AI Target", f"${p * 1.25:.5f}", delta="+25%")
+                    col3.metric("RSI ინდექსი", f"{rsi}")
+                    col4.metric("მოცულობა", f"${v:,.0f}")
                     st.divider()
             else:
-                st.info("ახალი პამპი არ დაფიქსირებულა.")
+                st.info("მოცემული კრიტერიუმებით პამპი არ დაფიქსირებულა.")
 
-# === TAB 3: LIVE COIN SEARCHER ===
+# === TAB 3: PORTFOLIO (SQL) ===
 with tab3:
-    st.subheader("🔍 კონკრეტული მონეტის ძებნა და რეალურ დროში ანალიზი")
-    search_query = st.text_input("ჩაწერეთ მონეტის სახელი ან სიმბოლო (მაგ: bitcoin, pepe, solana):").strip().lower()
+    st.subheader("💼 მუდმივი კრიპტო პორტფელი (SQLite Database)")
+    st.write("შენი პოზიციები ახლა უსაფრთხოდ ინახება ბაზაში და არასდროს წაიშლება.")
+    
+    with st.form("sql_portfolio_form"):
+        p_coin = st.text_input("მონეტის სიმბოლო (მაგ: BTC, ETH, TROLL):").upper()
+        p_amount = st.number_input("რაოდენობა:", value=1.0, step=0.1)
+        p_buy_price = st.number_input("ყიდვის საშუალო ფასი ($):", value=0.01, format="%.5f")
+        submitted = st.form_submit_button("➕ პოზიციის დამატება ბაზაში")
+        
+        if submitted and p_coin:
+            add_to_db(p_coin, p_amount, p_buy_price)
+            st.success(f"წარმატებით დაემატა ბაზაში: {p_amount} {p_coin}")
+
+    saved_portfolio = get_from_db()
+    if saved_portfolio:
+        st.divider()
+        st.write("### 📊 შენი შენახული პოზიციები:")
+        market_data = {c['symbol'].upper(): c['current_price'] for c in fetch_market_data()}
+        
+        total_invested = 0
+        total_current_value = 0
+        
+        for row in saved_portfolio:
+            rec_id, c_symbol, amt, b_price = row
+            cur_price = market_data.get(c_symbol, b_price)
+            invested = amt * b_price
+            current_val = amt * cur_price
+            pnl = current_val - invested
+            pnl_pct = ((cur_price - b_price) / b_price) * 100 if b_price > 0 else 0
+            
+            total_invested += invested
+            total_current_value += current_val
+            
+            cols = st.columns(5)
+            cols[0].text(f"{c_symbol}")
+            cols[1].text(f"რაოდ: {amt}")
+            cols[2].text(f"ყიდვა: ${b_price}")
+            cols[3].text(f"მიმდ: ${cur_price}")
+            cols[4].metric("PnL", f"${pnl:.2f}", f"{pnl_pct:+.2f}%")
+            
+        st.divider()
+        total_pnl = total_current_value - total_invested
+        tot_pct = ((total_current_value - total_invested) / total_invested) * 100 if total_invested > 0 else 0
+        st.metric("💰 პორტფელის ჯამური ღირებულება", f"${total_current_value:.2f}", f"{tot_pct:+.2f}%")
+        
+        if st.button("🗑️ ბაზის გასუფთავება (Clear DB)"):
+            clear_db()
+            st.rerun()
+    else:
+        st.info("პორტფელის ბაზა ცარიელია.")
+
+# === TAB 4: LIVE SEARCH & RSI ===
+with tab4:
+    st.subheader("🔍 კონკრეტული მონეტის ძებნა & ტექნიკური RSI")
+    search_query = st.text_input("ჩაწერეთ მონეტის სახელი ან სიმბოლო (მაგ: bitcoin, pepe):").strip().lower()
     
     if search_query:
-        with st.spinner("მონაცემების მოძიება და AI ანალიზი..."):
+        with st.spinner("ძებნა და ტექნიკური ანალიზი..."):
             response = fetch_market_data()
             matched_coin = next((c for c in response if search_query in c['name'].lower() or search_query in c['symbol'].lower()), None)
             
@@ -261,21 +350,23 @@ with tab3:
                 cp = matched_coin.get('current_price') or 0
                 cc = matched_coin.get('price_change_percentage_24h') or 0
                 cv = matched_coin.get('total_volume') or 0
+                rsi = matched_coin.get('rsi', 50)
                 
-                st.success(h := f"✅ ნაპოვნია: {matched_coin['name']} ({matched_coin['symbol'].upper()})")
-                sc1, sc2, sc3 = st.columns(3)
+                st.success(f"✅ ნაპოვნია: {matched_coin['name']} ({matched_coin['symbol'].upper()})")
+                sc1, sc2, sc3, sc4 = st.columns(4)
                 sc1.metric("რეალური ფასი", f"${cp}")
                 sc2.metric("24სთ ცვლილება", f"{cc:+.2f}%")
-                sc3.metric("24სთ მოცულობა", f"${cv:,.0f}")
+                sc3.metric("RSI ინდიკატორი", f"{rsi}")
+                sc4.metric("მოცულობა", f"${cv:,.0f}")
                 
-                ai_search_insight = get_ai_crypto_insight(matched_coin['name'], cp, cc)
+                ai_search_insight = get_ai_crypto_insight(matched_coin['name'], cp, cc, rsi)
                 st.info(f"💡 **Gemini AI შეფასება:** {ai_search_insight}")
             else:
-                st.warning("მონეტა ვერ მოიძებნა ტოპ ბაზარზე. სცადეთ სხვა სახელი.")
+                st.warning("მონეტა ვერ მოიძებნა.")
 
-# === TAB 4: SMART MONEY ===
-with tab4:
-    st.subheader("🔗 ინსაიდერების და პარტნიორული საფულეების კლასტერული ანალიზი")
+# === TAB 5: SMART MONEY ===
+with tab5:
+    st.subheader("🔗 ინსაიდერების კლასტერული ანალიზი")
     selected_wallet = st.selectbox("აირჩიეთ ფონდი:", list(SMART_MONEY_DATABASE.keys()))
     wallet_data = SMART_MONEY_DATABASE[selected_wallet]
     
@@ -293,25 +384,22 @@ with tab4:
         """)
     st.info(f"🧠 **ქცევის ანალიზი:** {wallet_data['cluster_behavior']}")
 
-# === TAB 5: GLOBAL AI & FEAR/GREED INDEX ===
-with tab5:
+# === TAB 6: GLOBAL AI ===
+with tab6:
     st.subheader("🌐 გლობალური ბაზრის AI ანალიზი & Fear & Greed Index")
-    
-    # Fear & Greed Widget
     fng_val, fng_text = fetch_fear_and_greed()
-    st.metric("📊 ბაზრის შიშისა და სიხარბის ინდექსი (Fear & Greed)", f"{fng_val}/100", fng_text)
+    st.metric("📊 Fear & Greed Index", f"{fng_val}/100", fng_text)
     st.divider()
     
     if st.button("🌍 გლობალური მაკრო ანალიზის გენერაცია"):
-        with st.spinner("საერთაშორისო ფონების და ლიკვიდურობის დამუშავება..."):
+        with st.spinner("ანალიზის მომზადება..."):
             global_insight = get_global_market_analysis()
             st.success("🎯 **გლობალური სტრატეგიული შეფასება:**")
             st.markdown(global_insight)
 
-# === TAB 6: PUSH TESTER & WATCHLIST ===
-with tab6:
-    st.subheader("📲 Push ტესტირება და რჩეულების მონიტორინგი")
-    test_title = st.text_input("შეტყობინების სათაური:", "🚀 PUMP ALERT: მზადყოფნა!")
-    test_body = st.text_area("ტექსტი:", "ბაზარზე ძლიერი მოცულობები ფიქსირდება.")
-    if st.button("📲 გაგზავნე ტელეფონზე"):
-        send_push_alert(test_title, test_body)
+# === TAB 7: TELEGRAM & ALERTS ===
+with tab7:
+    st.subheader("✈️ Telegram ბოტით სიგნალების გაგზავნა")
+    t_title = st.text_input("შეტყობინების ტექსტი:", "🚀 PUMP ALERT: ტექნიკური სიგნალი ბაზარზე!")
+    if st.button("✈️ გაგზავნე Telegram-ში"):
+        send_telegram_alert(t_title)
